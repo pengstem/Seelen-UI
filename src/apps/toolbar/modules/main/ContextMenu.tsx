@@ -1,14 +1,15 @@
 import { IconName } from '@icons';
 import { invoke, SeelenCommand } from '@seelen-ui/lib';
 import { PluginId } from '@seelen-ui/lib/types';
-import { Flex, Menu, Popover } from 'antd';
+import { Checkbox, Flex, Menu, Popover } from 'antd';
+import { MenuItemType } from 'antd/es/menu/interface';
 import { useTranslation } from 'react-i18next';
 import { useDispatch, useSelector } from 'react-redux';
 
 import { BackgroundByLayersV2 } from 'src/apps/seelenweg/components/BackgroundByLayers/infra';
 
 import { RootActions, Selectors } from '../shared/store/app';
-import { SaveToolbarItems } from './application';
+import { RestoreToDefault, SaveToolbarItems } from './application';
 import { Icon } from 'src/apps/shared/components/Icon';
 
 export function MainContextMenu() {
@@ -41,28 +42,43 @@ export function MainContextMenu() {
                   <BackgroundByLayersV2 className="tb-context-menu-container">
                     <Menu
                       className="tb-context-menu"
-                      items={plugins.map((plugin) => {
-                        const added = isAlreadyAdded(plugin.id);
-                        return {
-                          key: plugin.id,
-                          icon: <Icon iconName={plugin.icon as IconName} />,
-                          label: added ? `✓ ${plugin.id}` : plugin.id,
-                          onClick: () => {
-                            if (added) {
-                              dispatch(RootActions.removeItem(plugin.id));
-                            } else {
-                              dispatch(RootActions.addItem(plugin.id));
-                            }
-                            SaveToolbarItems();
+                      items={[
+                        {
+                          key: 'restore',
+                          icon: <Icon iconName="TbRestore" />,
+                          label: t('context_menu.restore'),
+                          onClick() {
+                            RestoreToDefault();
                           },
-                        };
-                      })}
+                        },
+                        {
+                          type: 'divider',
+                        },
+                        ...plugins
+                          .toSorted((p1, p2) => p1.id.localeCompare(p2.id))
+                          .map<MenuItemType>((plugin) => {
+                          const added = isAlreadyAdded(plugin.id);
+                          return {
+                            key: plugin.id,
+                            icon: <Icon iconName={plugin.icon as IconName} />,
+                            label: <Checkbox checked={added}>{plugin.id}</Checkbox>,
+                            onClick: () => {
+                              if (added) {
+                                dispatch(RootActions.removeItem(plugin.id));
+                              } else {
+                                dispatch(RootActions.addItem(plugin.id));
+                              }
+                              SaveToolbarItems();
+                            },
+                          };
+                        }),
+                      ]}
                     />
                   </BackgroundByLayersV2>
                 }
               >
                 <Flex justify="space-between" align="center">
-                  {t('context_menu.add_module')}
+                  {t('context_menu.modules')}
                   <Icon iconName="FaChevronRight" size={12} />
                 </Flex>
               </Popover>
@@ -73,8 +89,12 @@ export function MainContextMenu() {
           },
           {
             key: 'reoder',
-            icon: <Icon iconName={!items.isReorderDisabled ? 'VscLock' : 'VscUnlock' } />,
-            label: t(!items.isReorderDisabled ? 'context_menu.reorder_disable' : 'context_menu.reorder_enable' ),
+            icon: <Icon iconName={!items.isReorderDisabled ? 'VscLock' : 'VscUnlock'} />,
+            label: t(
+              !items.isReorderDisabled
+                ? 'context_menu.reorder_disable'
+                : 'context_menu.reorder_enable',
+            ),
             onClick() {
               dispatch(RootActions.setToolbarReorderDisabled(!items.isReorderDisabled));
               SaveToolbarItems();

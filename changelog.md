@@ -1,6 +1,49 @@
 # Changelog
 
 ## [Unreleased]
+## [2.3.2]
+### enhancements
+- mini performance improve on dock.
+
+### fix
+- resources not being updated correctly.
+
+## [2.3.1]
+### breaking changes
+- rename scope variables for toolbar plugins.
+
+### refactor
+- improve inner code quality on toolbar plugins.
+
+### enhancements
+- improve robustness on toolbar items to avoid blue screen.
+
+## [2.3.0]
+### breaking changes
+- remove mathjs eval by an more accurated eval for js code in toolbar plugins. This will break any plugin created before v2.2.10.
+
+### features
+- add resources endpoint to home tab on settings.
+- add customizable and reusable popups implementation.
+- improvements on toolbar plugins system.
+- allow set buttons with custom actions on toolbar, via toolbar plugins.
+- add restore to default button for toolbar structure.
+- allow fetching remote data on toolbar plugins.
+
+### enhancements
+- reduce CPU usage on slu-service process.
+- improve ui on toolbar modules.
+
+### fix
+- media player styles on toolbar.
+- steam pin item on dock not working properly.
+- plugins not being updated on toolbar.
+
+## [2.2.9]
+### enhancements
+- store service logs in a file to help debugging.
+- wait for native shell on startup before start seelen ui.
+
 ## [2.2.7]
 ### fix
 - dock items not opening correctly.

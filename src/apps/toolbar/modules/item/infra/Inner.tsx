@@ -1,17 +1,16 @@
-import { ToolbarItem } from '@seelen-ui/lib/types';
+import { RemoteDataDeclaration, ToolbarItem } from '@seelen-ui/lib/types';
+import useDeepCompareEffect from '@shared/hooks';
 import { Tooltip } from 'antd';
 import { Reorder } from 'framer-motion';
-import { cloneDeep } from 'lodash';
-import { isResultSet } from 'mathjs';
-import React, { PropsWithChildren, useEffect, useRef } from 'react';
+import React, { PropsWithChildren, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useSelector } from 'react-redux';
 
 import { Selectors } from '../../shared/store/app';
-import { safeEval, Scope } from '../app';
+import { EvaluateAction } from '../app';
 
 import { cx } from '../../../../shared/styles';
-import { StringToElement } from './StringElement';
+import { SanboxedComponent } from './EvaluatedComponents';
 
 export interface InnerItemProps extends PropsWithChildren {
   module: Omit<ToolbarItem, 'type'>;
@@ -24,30 +23,9 @@ export interface InnerItemProps extends PropsWithChildren {
   onKeydown?: (e: React.KeyboardEvent) => void;
 }
 
-export function ElementsFromEvaluated(content: any) {
-  let text: string = '';
-
-  if (typeof content === 'string') {
-    text = content;
-  } else if (isResultSet(content)) {
-    text = content.entries.reduce((acc: string, current: any) => {
-      return `${acc}${typeof current === 'string' ? current : JSON.stringify(current)}`;
-    }, '');
-  } else {
-    text = JSON.stringify(content);
-  }
-
-  const parts: string[] = text.split(/\[|\]/g).filter((part: string) => part);
-  const result: React.ReactNode[] = parts.map((part: string, index: number) => {
-    return <StringToElement key={index} text={part} />;
-  });
-
-  return result;
-}
-
 export function InnerItem(props: InnerItemProps) {
   const {
-    extraVars,
+    extraVars = {},
     module,
     active,
     onClick: onClickProp,
@@ -57,68 +35,40 @@ export function InnerItem(props: InnerItemProps) {
     clickable = true,
     ...rest
   } = props;
-  const { template, tooltip, onClickV2, style, id, badge } = module;
+  const { template, tooltip, onClickV2, style, id, badge, remoteData = {} } = module;
 
-  const structure = useSelector(Selectors.items);
-
-  const [mounted, setMounted] = React.useState(false);
+  const fetchedData = useRemoteData(remoteData);
+  const isReorderDisabled = useSelector(Selectors.items.isReorderDisabled);
   const env = useSelector(Selectors.env);
 
   const { t } = useTranslation();
-  const scope = useRef(new Scope());
+
+  const [scope, setScope] = useState<Record<string, any>>({
+    env,
+    t,
+    ...extraVars,
+    ...fetchedData,
+  });
 
   useEffect(() => {
-    scope.current.loadInvokeActions();
+    setScope((s) => ({ ...s, env, t }));
+  }, [env, t]);
 
-    scope.current.set('env', cloneDeep(env));
-
-    scope.current.set('getIcon', StringToElement.getIcon);
-    scope.current.set('imgFromUrl', StringToElement.imgFromUrl);
-    scope.current.set('imgFromPath', StringToElement.imgFromPath);
-    scope.current.set('imgFromExe', StringToElement.imgFromExe);
-
-    setMounted(true);
-  }, []);
-
-  if (!mounted) {
-    return null;
-  }
-
-  scope.current.set('t', t);
-  if (extraVars) {
-    Object.keys(extraVars).forEach((key) => {
-      scope.current.set(key, extraVars[key]);
-    });
-  }
-
-  function parseStringToElements(text: string) {
-    /// backward compatibility with v1 icon object
-    let expr = text.replaceAll(/icon\.(\w+)/g, 'getIcon("$1")');
-    let result = safeEval(expr, scope.current);
-    if (result.err) {
-      return [];
-    }
-    return ElementsFromEvaluated(result.ok);
-  }
-
-  const elements = template ? parseStringToElements(template) : [];
-  if (!elements.length && !children) {
-    return null;
-  }
-
-  const badgeContent = badge ? parseStringToElements(badge) : null;
+  useDeepCompareEffect(() => {
+    setScope((s) => ({ ...s, ...extraVars, ...fetchedData }));
+  }, [extraVars, fetchedData]);
 
   return (
     <Tooltip
       arrow={false}
       mouseLeaveDelay={0}
       classNames={{ root: 'ft-bar-item-tooltip' }}
-      title={tooltip ? parseStringToElements(tooltip) : undefined}
+      title={tooltip ? <SanboxedComponent code={tooltip} scope={scope} /> : undefined}
     >
       <Reorder.Item
         {...rest}
         id={id}
-        drag={!structure.isReorderDisabled}
+        drag={!isReorderDisabled}
         value={(module as any).__value__ || module}
         style={style}
         className={cx('ft-bar-item', {
@@ -131,7 +81,7 @@ export function InnerItem(props: InnerItemProps) {
         onClick={(e) => {
           onClickProp?.(e);
           if (onClickV2) {
-            safeEval(onClickV2, scope.current);
+            EvaluateAction(onClickV2, scope);
           }
         }}
         as="div"
@@ -142,10 +92,74 @@ export function InnerItem(props: InnerItemProps) {
         }}
       >
         <div className="ft-bar-item-content">
-          {children || elements}
-          {!!badgeContent?.length && <div className="ft-bar-item-badge">{badgeContent}</div>}
+          {children || <SanboxedComponent code={template} scope={scope} />}
+          {!!badge && (
+            <div className="ft-bar-item-badge">
+              <SanboxedComponent code={badge} scope={scope} />
+            </div>
+          )}
         </div>
       </Reorder.Item>
     </Tooltip>
   );
+}
+
+function useRemoteData(remoteData: Record<string, RemoteDataDeclaration | undefined>) {
+  const [state, setState] = useState<Record<string, any>>(() => {
+    return Object.keys(remoteData).reduce((acc, key) => ({ ...acc, [key]: undefined }), {});
+  });
+
+  const intervalsRef = useRef<Record<string, number>>({});
+  const mountedRef = useRef(true);
+
+  const fetchData = async (key: string, rd: RemoteDataDeclaration): Promise<void> => {
+    if (!mountedRef.current) return;
+
+    try {
+      const response = await fetch(rd.url, rd.requestInit as RequestInit);
+      const data = response.headers.get('Content-Type')?.includes('application/json')
+        ? await response.json()
+        : await response.text();
+
+      if (mountedRef.current) {
+        setState((prev) => ({
+          ...prev,
+          [key]: data,
+        }));
+      }
+    } catch (error) {
+      console.error(`Error fetching ${key}:`, error);
+    }
+  };
+
+  useDeepCompareEffect(() => {
+    mountedRef.current = true;
+    Object.values(intervalsRef.current).forEach(clearInterval);
+    intervalsRef.current = {};
+
+    const initialState = Object.keys(remoteData).reduce(
+      (acc, key) => ({ ...acc, [key]: undefined }),
+      {},
+    );
+
+    setState((prev) => ({ ...initialState, ...prev }));
+
+    Object.entries(remoteData).forEach(([key, rd]) => {
+      if (!rd) return;
+      fetchData(key, rd);
+      if (rd.updateIntervalSeconds) {
+        intervalsRef.current[key] = window.setInterval(
+          () => fetchData(key, rd),
+          rd.updateIntervalSeconds * 1000,
+        );
+      }
+    });
+
+    return () => {
+      mountedRef.current = false;
+      Object.values(intervalsRef.current).forEach(clearInterval);
+    };
+  }, [remoteData]);
+
+  return state;
 }

@@ -1,7 +1,7 @@
 {
   "name": "seelen-ui",
   "productName": "seelen-ui",
-  "version": "2.2.7",
+  "version": "2.3.2",
   "description": "Seelen UI Project",
   "type": "module",
   "scripts": {
@@ -42,8 +42,9 @@
   "devDependencies": {
     "@commitlint/cli": "^19.6.1",
     "@commitlint/config-conventional": "^19.2.2",
+    "@nyariv/sandboxjs": "^0.8.24",
     "@reduxjs/toolkit": "^2.5.0",
-    "@seelen-ui/lib": "^2.2.6-next.20250406225153",
+    "@seelen-ui/lib": "^2.2.6-next.20250430005140",
     "@stylistic/eslint-plugin": "^1.6.2",
     "@types/d3": "^7.4.3",
     "@types/express": "^5.0.0",
@@ -75,7 +76,7 @@
     "react": "18.2.0",
     "react-dom": "18.2.0",
     "react-i18next": "^15.0.0",
-    "react-icons": "^5.4.0",
+    "react-icons": "^5.5.0",
     "react-redux": "^9.1.0",
     "readable-types": "^4.0.0",
     "redux": "^5.0.1",
@@ -85,6 +86,6 @@
     "typescript": "5.3.3",
     "typescript-eslint": "^7.0.1",
     "yargs": "^17.7.2",
-    "zod": "^3.23.4"
+    "zod": "^3.24.3"
   }
 }

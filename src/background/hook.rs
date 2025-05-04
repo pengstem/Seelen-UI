@@ -21,6 +21,7 @@ use windows::Win32::{
         Accessibility::{SetWinEventHook, HWINEVENTHOOK},
         WindowsAndMessaging::{
             DispatchMessageW, GetMessageW, TranslateMessage, EVENT_MAX, EVENT_MIN, MSG,
+            OBJID_WINDOW,
         },
     },
 };
@@ -142,7 +143,7 @@ impl HookManager {
         _id_event_thread: u32,
         _dwms_event_time: u32,
     ) {
-        if id_object != 0 || !Seelen::is_running() {
+        if id_object != OBJID_WINDOW.0 || !Seelen::is_running() {
             return;
         }
 
@@ -178,7 +179,10 @@ impl HookManager {
                 &event
             }
         };
-        log::debug!("{:?} | {:?}", event_value, origin,);
+        if event == WinEvent::ObjectDestroy {
+            return log::debug!("{:?}({:0x})", event_value, origin.address());
+        }
+        log::debug!("{:?} | {:?}", event_value, origin);
     }
 
     fn process_event(event: WinEvent, origin: Window) {
@@ -257,12 +261,16 @@ impl HookManager {
     }
 }
 
-pub fn init_win_event_hook_sanitizer() -> Result<()> {
-    let mut dict = trace_lock!(WINDOW_DICT);
-    dict.clear();
-    WindowEnumerator::new().for_each_v2(|w| {
-        dict.insert(w.address(), WindowCachedData::from(&w));
-    })?;
+pub fn init_self_windows_registry() -> Result<()> {
+    std::thread::spawn(|| {
+        let mut dict = HashMap::new();
+        let result = WindowEnumerator::new().for_each_and_descendants(|window| {
+            dict.entry(window.address())
+                .or_insert_with(|| WindowCachedData::from(&window));
+        });
+        log_error!(result);
+        trace_lock!(WINDOW_DICT).extend(dict);
+    });
 
     // this should be the first subscription or it will not work correctly
     HookManager::subscribe(|(event, origin)| match event {
@@ -274,13 +282,47 @@ pub fn init_win_event_hook_sanitizer() -> Result<()> {
             let mut dict = trace_lock!(WINDOW_DICT);
             dict.remove(&origin.address());
         }
-        _ => {}
+        _ => {
+            /* #[cfg(debug_assertions)]
+            {
+                let mut dict = trace_lock!(WINDOW_DICT);
+                dict.entry(origin.address()).or_insert_with(|| {
+                    log::warn!(
+                        "{:?} emitted by an unregisted window({:?})",
+                        event.green(),
+                        origin
+                    );
+                    WindowCachedData::from(&origin)
+                });
+            } */
+        }
     });
+
+    // Spawns a background thread that periodically checks for "zombie windows" - windows
+    // that have been destroyed (e.g., through task kill or abnormal termination) but didn't
+    // properly emit the ObjectDestroy event. This thread detects such windows
+    // and emits the missing destruction events to ensure proper cleanup.
+    spawn_named_thread("Zombie Window Exterminator", move || {
+        std::thread::sleep(std::time::Duration::from_secs(9));
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(1));
+            let registered = trace_lock!(WINDOW_DICT).keys().cloned().collect_vec();
+            for addr in registered {
+                let window = Window::from(addr);
+                if !window.is_window() {
+                    log::trace!("Reaping window: {:0x}", window.address());
+                    log_error!(HookManager::event_tx().send((WinEvent::ObjectDestroy, window)));
+                }
+            }
+        }
+    })?;
+
     Ok(())
 }
 
 pub fn register_win_hook() -> Result<()> {
     log::trace!("Registering Windows and Virtual Desktop Hooks");
+    init_self_windows_registry()?;
 
     spawn_named_thread("WinEventHook", move || unsafe {
         SetWinEventHook(
@@ -292,8 +334,6 @@ pub fn register_win_hook() -> Result<()> {
             0,
             0,
         );
-
-        init_win_event_hook_sanitizer().expect("Failed to init win event hook sanitizer");
 
         HookManager::subscribe(|(event, mut origin)| {
             if event == WinEvent::SystemForeground {

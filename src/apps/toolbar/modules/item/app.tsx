@@ -1,82 +1,33 @@
-import { SeelenCommand } from '@seelen-ui/lib';
-import { ToolbarItem } from '@seelen-ui/lib/types';
+import Sandbox from '@nyariv/sandboxjs';
+import { SeelenCommand, SeelenEvent } from '@seelen-ui/lib';
 import { invoke } from '@tauri-apps/api/core';
-import { TFunction } from 'i18next';
-import { evaluate } from 'mathjs';
-import { Dispatch } from 'redux';
-
-import { SaveToolbarItems } from '../main/application';
-import { RootActions } from '../shared/store/app';
-import { Icon } from 'src/apps/shared/components/Icon';
-
-export class Scope {
-  scope: Map<string, any>;
-
-  constructor() {
-    this.scope = new Map();
-  }
-
-  get(key: string) {
-    return this.scope.get(key);
-  }
-
-  set(key: string, value: any) {
-    return this.scope.set(key, value);
-  }
-
-  has(key: string) {
-    return this.scope.has(key);
-  }
-
-  keys(): string[] | IterableIterator<string> {
-    return this.scope.keys();
-  }
-
-  loadInvokeActions() {
-    for (const [key, value] of Object.entries(ActionsScope)) {
-      this.set(key, value);
-    }
-  }
-}
+import { emit, emitTo } from '@tauri-apps/api/event';
 
 const ActionsScope = {
   open(path: string) {
-    invoke(SeelenCommand.OpenFile, { path }).catch(console.error);
+    invoke(SeelenCommand.OpenFile, { path });
   },
   run(program: string, args: string[], workingDir: string) {
-    invoke(SeelenCommand.Run, { program, args, workingDir }).catch(console.error);
+    invoke(SeelenCommand.Run, { program, args, workingDir });
   },
-  copyClipboard(text: string) {
+  copyToClipboard(text: string) {
     navigator.clipboard.writeText(text);
   },
+  invoke(command: SeelenCommand, args?: any) {
+    invoke(command, args);
+  },
+  emit(event: SeelenEvent, payload?: unknown) {
+    emit(event, payload);
+  },
+  emitTo(target: string, event: SeelenEvent, payload?: unknown) {
+    emitTo(target, event, payload);
+  },
+  SeelenCommand,
+  SeelenEvent,
 };
 
-type Result = { ok: any; err?: never } | { err: any; ok?: never };
-export function safeEval(expression: string, scope: Scope): Result {
-  try {
-    return {
-      ok: evaluate(expression, scope),
-    };
-  } catch (error) {
-    console.error('Error evaluating: ', expression);
-    console.error(error);
-    return {
-      err: error,
-    };
-  }
-}
-
-export function CommonItemContextMenu(t: TFunction, d: Dispatch, item: Omit<ToolbarItem, 'type'>) {
-  return [
-    {
-      key: 'remove',
-      label: t('context_menu.remove'),
-      icon: <Icon iconName="CgExtensionRemove" />,
-      className: 'ft-bar-item-context-menu-item',
-      onClick() {
-        d(RootActions.removeItem(item.id));
-        SaveToolbarItems()?.catch(console.error);
-      },
-    },
-  ];
+export async function EvaluateAction(code: string, scope: Record<string, any>) {
+  const sandbox = new Sandbox();
+  const executor = sandbox.compileAsync(code);
+  await executor({ ...scope, ...ActionsScope }).run();
 }

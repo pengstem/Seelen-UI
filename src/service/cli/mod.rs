@@ -3,7 +3,7 @@ mod tcp;
 
 use std::sync::atomic::Ordering;
 
-pub use tcp::TcpService;
+pub use tcp::*;
 
 use clap::{Arg, ArgAction, Command};
 
@@ -50,17 +50,19 @@ pub fn handle_console_client() -> Result<()> {
     let subcommand = matches.subcommand();
 
     if matches.get_flag("startup") {
-        crate::STARTUP.store(true, Ordering::SeqCst);
+        // --startup flag is added when service is invoked from task scheduler
+        // but this can be invoked by the main app too, so we only considerate as startup if
+        // the main app is not running and flag is present
+        crate::STARTUP.store(!TcpBgApp::is_running(), Ordering::SeqCst);
     }
 
     match subcommand {
         Some((ServiceSubcommands::INSTALL, _)) => {
-            SluServiceLogger::install()?;
             add_installation_dir_to_path()?;
             TaskSchedulerHelper::create_service_task()?;
         }
         Some((ServiceSubcommands::UNINSTALL, _)) => {
-            SluServiceLogger::uninstall()?;
+            SluServiceLogger::uninstall_old_logging()?;
             remove_installation_dir_from_path()?;
             TaskSchedulerHelper::remove_service_task()?;
         }

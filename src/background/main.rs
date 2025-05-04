@@ -9,6 +9,7 @@ mod hook;
 mod instance;
 mod modules;
 mod plugins;
+mod popups;
 mod restoration_and_migrations;
 mod seelen;
 mod seelen_bar;
@@ -18,6 +19,7 @@ mod seelen_weg;
 mod seelen_wm_v2;
 mod state;
 mod system;
+mod tauri_context;
 mod tray;
 mod utils;
 mod widget_loader;
@@ -65,13 +67,13 @@ pub fn is_local_dev() -> bool {
 fn setup(app: &mut tauri::App<tauri::Wry>) -> Result<()> {
     print_initial_information();
     validate_webview_runtime_is_installed(app.handle())?;
+    TcpBgApp::listen_tcp()?;
 
     if !TcpService::is_running() {
         tauri::async_runtime::block_on(TcpService::start_service())?;
     }
 
     check_for_webview_optimal_state(app.handle())?;
-    TcpBgApp::listen_tcp()?;
 
     log_error!(WindowsApi::enable_privilege(SE_SHUTDOWN_NAME));
     log_error!(WindowsApi::enable_privilege(SE_DEBUG_NAME));
@@ -134,6 +136,7 @@ fn main() -> Result<()> {
         restart_as_appx()?;
     }
 
+    rust_i18n::set_locale(&seelen_core::state::Settings::get_system_language());
     trace_lock!(PERFORMANCE_HELPER).start("setup");
     let mut app_builder = tauri::Builder::default();
     app_builder = register_plugins(app_builder);
@@ -148,7 +151,7 @@ fn main() -> Result<()> {
             }
             Ok(())
         })
-        .build(tauri::generate_context!())
+        .build(tauri_context::get_context())
         .expect("Error while building tauri application");
 
     app.run(app_callback);
